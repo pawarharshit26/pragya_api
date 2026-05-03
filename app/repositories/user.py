@@ -8,16 +8,6 @@ from app.entities.user import UserEntity
 from app.repositories.base import BaseRepository
 
 
-def _to_user_entity(user: User) -> UserEntity:
-    return UserEntity(
-        id=user.id,
-        email=user.email,
-        name=user.name,
-        created_at=user.created_at,
-        updated_at=user.updated_at,
-    )
-
-
 class UserRepository(BaseRepository):
     async def get_by_email(self, email: str) -> UserEntity | None:
         result = await self.db.execute(
@@ -28,7 +18,7 @@ class UserRepository(BaseRepository):
             )
         )
         user = result.scalar_one_or_none()
-        return _to_user_entity(user=user) if user else None
+        return self._to_user_entity(user=user) if user else None
 
     async def get_by_id(self, user_id: int) -> UserEntity | None:
         result = await self.db.execute(
@@ -39,7 +29,7 @@ class UserRepository(BaseRepository):
             )
         )
         user = result.scalar_one_or_none()
-        return _to_user_entity(user=user) if user else None
+        return self._to_user_entity(user=user) if user else None
 
     async def create_user(
         self,
@@ -61,7 +51,7 @@ class UserRepository(BaseRepository):
         self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
-        return _to_user_entity(user=user)
+        return self._to_user_entity(user=user)
 
     async def check_password(self, email: str, plain_password: str) -> bool:
         result = await self.db.execute(
@@ -99,3 +89,12 @@ class UserRepository(BaseRepository):
     async def delete_auth_tokens(self, user_id: int) -> None:
         await self.db.execute(delete(AuthToken).where(AuthToken.user_id == user_id))
         await self.db.commit()
+
+    def _to_user_entity(self, user: User) -> UserEntity:
+        return UserEntity(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+        )
