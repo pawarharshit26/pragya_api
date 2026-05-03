@@ -150,6 +150,8 @@ def get_create_vision_interactor(service) -> CreateVisionInteractor: ...
 
 Pydantic models shared across all layers. No ORM types, no DB knowledge.
 
+**Never use Python dataclasses (`@dataclass`).** All data structures use Pydantic models (subclass `BaseEntity` or `BaseRecord`).
+
 - `BaseEntity` — base for all entities (`app/entities/base.py`)
 - Per-domain files: `app/entities/<domain>.py`
 - Input entities: `CreateXEntity`, `UpdateXEntity`, `SignInEntity`
