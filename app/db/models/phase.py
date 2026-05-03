@@ -39,8 +39,8 @@ class Phase(CreateUpdateDeleteModel):
     goal = relationship("Goal", back_populates="phases")
 
     title: Mapped[str] = mapped_column(String, nullable=False)
-    start_date: Mapped[Date] = mapped_column(Date)
-    end_date: Mapped[Date] = mapped_column(Date)
+    start_date: Mapped[Date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[Date] = mapped_column(Date, nullable=False)
     lifecycle: Mapped[PhaseLifecycle] = mapped_column(
         Enum(PhaseLifecycle, name="phase_lifecycle"),
         nullable=False,

@@ -45,7 +45,7 @@ class HashId(int):
 
         def validate(value: Any) -> int:
             if isinstance(value, str):
-                return decode(value)
+                return decode(hash_id=value)
 
             if isinstance(value, int):
                 return value

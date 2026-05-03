@@ -7,8 +7,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Development Server
 ```bash
 uv run uvicorn app.main:app --reload
-# or
-poetry run uvicorn app.main:app --reload
 ```
 
 ### Database (Docker)
@@ -40,90 +38,163 @@ make fmt                    # black app && ruff check app --fix
 
 **Vision → Themes → Tracks → Goals → Phases → Daily Commitments → Execution Logs**
 
-Each layer narrows from abstract identity to concrete daily action. A user owns one Vision; all other entities cascade from it.
+### Layer Stack
 
-### Layer Responsibilities
-
-| Layer | Location | Role |
-|-------|----------|------|
-| HTTP | `app/apis/` | Routes, request parsing, exception → HTTP status mapping |
-| Service | `app/services/` | Business logic, DTOs, auth dependency |
-| DB | `app/db/` | Async SQLAlchemy engine, session, ORM models |
-| Core | `app/core/` | Config, JWT, logging, security, HashId, middlewares |
+```
+app/apis/v1/          HTTP layer — routes, request parsing, exception → HTTP status mapping
+app/interactors/      One interactor per endpoint — single execute() method, own exceptions
+app/services/         Business logic per domain — exceptions, validation, orchestrates repos
+app/repositories/     Data access — all ORM creation/queries, returns entities (no ORM leaks)
+app/entities/         Shared Pydantic models — used across all layers
+app/db/models/        SQLAlchemy ORM models — only imported by repositories
+app/core/             Config, JWT, security, logging, HashId, middlewares
+app/dependencies.py   Single DI factory — all Depends() providers in one place
+```
 
 ### Request Lifecycle
-Request → `RequestIDMiddleware` (UUID per request) → `RequestLoggingMiddleware` → route handler → `Service` → DB → `ResponseEntity[T]` wrapper
+
+```
+Request
+  → RequestIDMiddleware (UUID per request)
+  → RequestLoggingMiddleware
+  → Route handler (APIs layer)
+    → Interactor.execute()
+      → Service method
+        → Repository method → DB
+  → ResponseEntity[T] wrapper
+```
 
 All responses follow this structure:
 ```json
 { "code": 200, "message": "", "data": {...}, "error": null }
 ```
 
+### Exception Isolation
+
+Each layer only knows its own exceptions:
+
+| Layer | Raises | Catches |
+|-------|--------|---------|
+| Repository | — | (internal only) |
+| Service | `XService.XException` | — |
+| Interactor | `XInteractor.XException` | re-raises service exceptions as interactor exceptions |
+| API | `BaseAPIException` | catches interactor exceptions, maps to HTTP status |
+
+**Pattern:**
+```python
+# service
+class UserService(BaseService):
+    class UserNotFoundException(BaseException):
+        message = "User Not Found"
+
+# interactor
+class GetMeInteractor(BaseInteractor[int, UserEntity]):
+    class UserNotFoundException(BaseInteractor.InteractorException):
+        message = "User not found"
+
+    async def execute(self, input: int) -> UserEntity:
+        try:
+            return await self.user_service.get_user(input)
+        except UserService.UserNotFoundException as e:
+            raise self.UserNotFoundException() from e
+
+# api
+except GetMeInteractor.UserNotFoundException as e:
+    raise BaseAPIException(message=str(e.message), status_code=404) from e
+```
+
+### Interactor Pattern
+
+`BaseInteractor` is generic and abstract:
+```python
+class BaseInteractor(ABC, Generic[InputT, OutputT]):
+    class InteractorException(BaseException): ...
+
+    @abstractmethod
+    async def execute(self, input: InputT) -> OutputT: ...
+```
+
+One interactor per API endpoint. File location: `app/interactors/<domain>/<action>.py`.
+
 ### Authentication
+
 - JWT payload: `{"sub": {"auth_token": "<random_string>"}}`
 - `AuthToken` row in DB links token string to user; deleted on signout
-- `get_current_user_id` dependency in `app/services/user.py` validates JWT + DB presence
+- `get_current_user_id` in `app/dependencies.py` validates JWT + DB presence + expiry
+- Inject as: `user_id: Annotated[int, Depends(get_current_user_id)]`
 
 ### ID Obfuscation
-Integer PKs are never exposed. `HashId` (a custom Pydantic type in `app/core/hash_ids.py`) auto-converts `int ↔ hash string` during serialization/deserialization. Salt comes from `settings.SECRET_KEY`.
+
+Integer PKs never exposed. `HashId` (custom Pydantic type in `app/core/hash_ids.py`) auto-converts `int ↔ hash string` at serialization. Salt from `settings.SECRET_KEY`.
 
 ### Model Mixins (`app/db/models/base.py`)
-All domain models inherit `CreateUpdateDeleteModel`, which provides:
-- `created_at / creator_id / creator`
-- `updated_at / updater_id / updater`
-- `deleted_at / deleter_id / deleter` (soft delete)
 
-Filter active records with `Model.deleted_at.is_(None)`. The `creator_id`, `updater_id`, `deleter_id` fields are **not auto-populated** — set them explicitly in service methods using the authenticated `user_id`.
+All domain models inherit `CreateUpdateDeleteModel`:
+- `created_at / creator_id` — set `creator_id=user_id` in repo `create_*` calls
+- `updated_at / updater_id` — set `updater_id=user_id` in repo `update_*` calls
+- `deleted_at / deleter_id` — soft delete; filter with `Model.deleted_at.is_(None)`
 
-### Exception Pattern
-1. Define nested exception classes inside the Service:
-   ```python
-   class UserService(BaseService):
-       class UserNotFoundException(BaseException):
-           message = "User Not Found"
-   ```
-2. Raise in service layer
-3. Catch in route, re-raise as `BaseAPIException(message=..., status_code=...)` with `from None`
+**Important:** `creator_id / updater_id / deleter_id` are NOT auto-populated. Pass `actor_id` from the authenticated `user_id` down through interactor → service → repository. Exception: `create_user` (signup bootstrap, no authenticated user yet → `creator_id=None`).
 
-### Naming Conventions
-- DTOs (Pydantic): suffix `Entity` — e.g. `UserSignUpEntity`
-- Services: suffix `Service` — e.g. `UserService`
-- ORM models: singular PascalCase — e.g. `User`, `Vision`
-- Table names: singular snake_case — e.g. `user`, `auth_token`
+### DI Factory (`app/dependencies.py`)
 
-### Key Files
-- Entry point: `app/main.py`
-- Settings: `app/core/config.py` (reads `.env`)
-- DB session: `app/db/base.py`
-- Model mixins: `app/db/models/base.py`
-- Auth dependency: `app/services/user.py` → `get_current_user_id`
-- Response wrapper: `app/apis/response.py`
-- Router registration: `app/apis/v1/base.py` — add new routers here
+All `get_*` provider functions live here. Adding a new feature = add providers to this one file.
 
-### Tech Stack
-FastAPI + SQLAlchemy 2.0 async + AsyncPG + PostgreSQL + Pydantic v2 + PyJWT + structlog + Hashids + Alembic
+```python
+def get_vision_repository(db) -> VisionRepository: ...
+def get_vision_service(repo, ...) -> VisionService: ...
+def get_create_vision_interactor(service) -> CreateVisionInteractor: ...
+```
 
-Use `select()` / `delete()` (SQLAlchemy 2.0 style), not the legacy Query API. Use `Mapped[T]` + `mapped_column()` for new models (not `Column()`).
+## Entities (`app/entities/`)
+
+Pydantic models shared across all layers. No ORM types, no DB knowledge.
+
+- `BaseEntity` — base for all entities (`app/entities/base.py`)
+- Per-domain files: `app/entities/<domain>.py`
+- Input entities: `CreateXEntity`, `UpdateXEntity`, `SignInEntity`
+- Output entities: `XEntity` (public fields only — no passwords, no raw IDs)
+
+## Repositories (`app/repositories/`)
+
+Own all ORM construction and SQL. Return entities, never ORM objects.
+
+- `BaseRepository` — holds `db: AsyncSession` (`app/repositories/base.py`)
+- `BaseRecord` — Pydantic base for internal records (not exported outside repo)
+- Per-domain files: `app/repositories/<domain>.py`
+- Mapper functions (`_to_x_entity`) are module-private
 
 ## Domain Model Semantics
 
-All models are defined; only **User** has a service and API. The rest need to be built following the same pattern.
-
 | Model | Constraint / Intent |
 |-------|---------------------|
-| `Vision` | Identity anchor. One active per user (`user_id` is unique). Rarely changes. |
-| `Theme` | Life domain (Health, Career, etc.). 3–6 active per Vision max. |
-| `Track` | Skill/focus area within a Theme (e.g. "Backend Engineering"). Can be paused. |
-| `Goal` | Outcome direction for a Track. Multiple per Track, few active at once. |
-| `Phase` | Time-boxed focus (with `start_date` / `end_date`). **Only 1 active Phase per Goal**. |
-| `DailyCommitment` | Intent set at day start. Belongs to one Phase. Can be skipped but must be logged. |
-| `ExecutionLog` | What actually happened. 1-to-1 with `DailyCommitment` (`commitment_id` is unique). Has `actual_output` + `reflection` text fields. |
+| `Vision` | Identity anchor. One per user (`user_id` unique). Rarely changes. |
+| `Theme` | Life domain. 3–6 active per Vision. Has `preset_key` (resolved to glyph+color frontend-side). |
+| `Track` | Focus area within Theme. Has `cadence_per_week`, `is_paused`. |
+| `Goal` | Outcome direction. Has `horizon: str | None`. No description (→ blocks Phase 3). |
+| `Phase` | Time-boxed focus. `lifecycle` enum (draft/active/paused/complete/abandoned). **Only 1 active per goal** (partial unique index). |
+| `DailyCommitment` | Day intent. `mve_minutes = max(5, round(expected_minutes / 3))` — frozen at write time. |
+| `ExecutionLog` | Actual result. 1-to-1 with `DailyCommitment`. `energy_level` 1–5 (DB check constraint). |
+| `DailyReflection` | Day-level mood. Unique on `(user_id, date)`. |
+| `Block` | Polymorphic rich content. `owner_type` ∈ `{goal, phase, execution_log, daily_reflection}`. |
 
 ## Adding a New Feature (Pattern)
 
-Follow `app/services/user.py` + `app/apis/v1/user.py` as the reference implementation:
+**Reference implementation:** `app/repositories/user.py`, `app/services/user.py`, `app/interactors/user/`, `app/apis/v1/user.py`
 
-1. **Service** (`app/services/<entity>.py`): subclass `BaseService`, define inner exception classes, implement async methods, expose `get_<entity>_service(db) -> <Entity>Service` factory.
-2. **Router** (`app/apis/v1/<entity>.py`): `APIRouter`, inject service via `Depends(get_<entity>_service)` and user via `Depends(get_current_user_id)`, map service exceptions to `BaseAPIException`.
-3. **Register**: add router in `app/apis/v1/base.py`.
-4. **Migration**: run `alembic revision --autogenerate` if models changed.
+1. **Entity** (`app/entities/<domain>.py`): input + output Pydantic models extending `BaseEntity`.
+2. **Repository** (`app/repositories/<domain>.py`): subclass `BaseRepository`, return entities from all public methods, pass `creator_id/updater_id` to ORM constructors.
+3. **Service** (`app/services/<domain>.py`): subclass `BaseService`, define nested exception classes, inject repository. No ORM imports.
+4. **Interactors** (`app/interactors/<domain>/<action>.py`): one file per endpoint, subclass `BaseInteractor[InputT, OutputT]`, implement `execute`, catch service exceptions and re-raise as own.
+5. **Providers** (`app/dependencies.py`): add `get_<domain>_repository`, `get_<domain>_service`, `get_<action>_interactor`.
+6. **Router** (`app/apis/v1/<domain>.py`): one route per endpoint, call `interactor.execute()`, catch interactor exceptions, map to `BaseAPIException`.
+7. **Register** router in `app/apis/v1/base.py`.
+8. **Migration**: `alembic -c app/alembic.ini revision --autogenerate -m "<description>"` if models changed.
+
+## Tech Stack
+
+FastAPI + SQLAlchemy 2.0 async + AsyncPG + PostgreSQL + Pydantic v2 + PyJWT + structlog + Hashids + Alembic
+
+- Use `select()` / `delete()` (SQLAlchemy 2.0 style), not legacy Query API
+- Use `Mapped[T]` + `mapped_column()` for new models (not `Column()`)
+- All datetimes stored as UTC timezone-naive (`datetime.utcnow()`) — columns are `DateTime` without timezone

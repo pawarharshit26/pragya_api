@@ -29,7 +29,7 @@ def setup_logging():
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+        wrapper_class=structlog.make_filtering_bound_logger(min_level=logging.INFO),
         cache_logger_on_first_use=True,
     )
 

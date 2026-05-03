@@ -29,17 +29,6 @@ class JWTService:
         expires_delta: Optional[timedelta] = None,
         **kwargs,
     ) -> str:
-        """
-        Create a JWT access token
-
-        Args:
-            subject: The subject or data to encode
-            expires_delta: Optional timedelta for token expiration
-            **kwargs: Additional claims to include in the token
-
-        Returns:
-            str: Encoded JWT token
-        """
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
         else:
@@ -47,63 +36,49 @@ class JWTService:
                 minutes=self.access_token_expire_minutes
             )
 
-        # If subject is a dict, serialize it to a JSON string to satisfy JWT 'sub' claim requirement (must be string)
         if isinstance(subject, dict):
             subject = json.dumps(subject)
 
         to_encode = {"exp": expire, "iat": datetime.utcnow(), "sub": subject, **kwargs}
 
-        return jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
+        return jwt.encode(payload=to_encode, key=self.secret_key, algorithm=self.algorithm)
 
     def decode(
         self, token: str, options: Optional[Dict[str, bool]] = None
     ) -> Dict[str, Any]:
-        """
-        Decode and validate a JWT token
-
-        Args:
-            token: The JWT token to decode
-            options: Optional dict of options to pass to PyJWT decode
-
-        Returns:
-            Dict containing the token payload
-
-        Raises:
-            PyJWTError: If the token is invalid or expired
-        """
         if options is None:
             options = {"verify_signature": True, "verify_exp": True}
 
         try:
             payload = jwt.decode(
-                token, self.secret_key, algorithms=[self.algorithm], options=options
+                jwt=token,
+                key=self.secret_key,
+                algorithms=[self.algorithm],
+                options=options,
             )
 
-            # If 'sub' is a JSON string, assume it's a serialized dict and deserialize it
             if "sub" in payload and isinstance(payload["sub"], str):
                 try:
                     payload["sub"] = json.loads(payload["sub"])
                 except json.JSONDecodeError:
-                    pass  # Keep as string if not valid JSON
+                    pass
 
             return payload
 
         except jwt.ExpiredSignatureError:
-            raise self.JWTTokenExpiredException("Token has expired") from None
+            raise self.JWTTokenExpiredException(message="Token has expired") from None
         except jwt.InvalidTokenError as e:
-            raise self.JWTInvalidTokenException(f"Invalid token: {e!s}") from e
+            raise self.JWTInvalidTokenException(message=f"Invalid token: {e!s}") from e
 
     def get_payload(self, token: str) -> dict[str, Any]:
-        """Get token payload without signature verification"""
-        return self.decode(token, options={"verify_signature": False})
+        return self.decode(token=token, options={"verify_signature": False})
 
     def get_subject(self, payload: dict[str, Any]) -> str:
         return payload.get("sub")
 
     def is_token_expired(self, token: str) -> bool:
-        """Check if a token is expired"""
         try:
-            self.decode(token)
+            self.decode(token=token)
             return False
         except Exception:
             return True

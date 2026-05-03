@@ -44,10 +44,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    app.add_middleware(RequestLoggingMiddleware)
-    app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(middleware_class=RequestLoggingMiddleware)
+    app.add_middleware(middleware_class=RequestIDMiddleware)
 
-    include_routers(app)
+    include_routers(app=app)
 
     return app
 
