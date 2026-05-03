@@ -86,11 +86,19 @@ class UserService(BaseService):
         )
 
         self.db.add(user)
-        await self.db.commit()  # using autocommit currently
+        await self.db.commit()
         await self.db.refresh(user)
 
+        auth_token = await self.create_auth_token(user)
+        jwt_token = self._encode_jwt(user=user, auth_token=auth_token)
+
         logger.info("User created", email=user.email)
-        return UserEntity.model_validate(user, from_attributes=True)
+        return UserTokenEntity.model_validate(
+            {
+                "token": jwt_token,
+                "user": UserEntity.model_validate(user, from_attributes=True),
+            }
+        )
 
     async def sign_in(self, input: UserSignInEntity) -> UserTokenEntity:
         logger.info("Signing in user", email=input.email)
@@ -104,7 +112,7 @@ class UserService(BaseService):
         result = await self.db.execute(query)
         user = result.scalar_one_or_none()
         if not user:
-            logger.info("User not found", email=user.email)
+            logger.info("User not found", email=input.email)
             raise self.UserNotFoundException()
 
         if not verify_hash(input=input.password, hashed=user.password):
