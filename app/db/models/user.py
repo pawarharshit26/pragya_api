@@ -16,10 +16,17 @@ class User(CreateUpdateDeleteModel):
         nullable=False,
         comment="User's email address (must be unique)",
     )
-    name: Mapped[str] = mapped_column(String, nullable=False, comment="User's full name")
-    password: Mapped[str] = mapped_column(String, nullable=False, comment="Hashed password")
+    name: Mapped[str] = mapped_column(
+        String, nullable=False, comment="User's full name"
+    )
+    password: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Hashed password"
+    )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, comment="Whether the user account is active"
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Whether the user account is active",
     )
 
     auth_token = relationship(
@@ -47,7 +54,9 @@ class AuthToken(CreateModel):
     token: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
-    user = relationship(argument="User", back_populates="auth_token", foreign_keys=[user_id])
+    user = relationship(
+        argument="User", back_populates="auth_token", foreign_keys=[user_id]
+    )
 
     def __repr__(self) -> str:
         return f"<AuthToken(id={self.id}, token='{self.user_id}')>"

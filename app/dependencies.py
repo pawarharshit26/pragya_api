@@ -65,6 +65,8 @@ async def get_current_user_id(
     if not credentials:
         raise UnauthorizedException()
     try:
-        return await user_service.resolve_user_id_from_token(jwt_token=credentials.credentials)
+        return await user_service.resolve_user_id_from_token(
+            jwt_token=credentials.credentials
+        )
     except UserService.UserAuthException as e:
         raise UnauthorizedException() from e

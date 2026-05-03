@@ -7,7 +7,12 @@ from app.core.config import settings
 from app.core.exceptions import BaseException
 from app.core.jwt import JWTService
 from app.core.security import get_hash
-from app.entities.user import UserEntity, UserSignInEntity, UserSignUpEntity, UserTokenEntity
+from app.entities.user import (
+    UserEntity,
+    UserSignInEntity,
+    UserSignUpEntity,
+    UserTokenEntity,
+)
 from app.repositories.user import UserRepository
 from app.services.base import BaseService
 
@@ -61,7 +66,9 @@ class UserService(BaseService):
             logger.info("User not found", email=input.email)
             raise self.UserNotFoundException()
 
-        if not await self.repo.check_password(email=input.email, plain_password=input.password):
+        if not await self.repo.check_password(
+            email=input.email, plain_password=input.password
+        ):
             logger.info("Invalid password", email=user.email)
             raise self.UserInvalidPasswordException()
 
@@ -104,5 +111,7 @@ class UserService(BaseService):
         expires_at = datetime.utcnow() + timedelta(
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
-        await self.repo.create_auth_token(user_id=user_id, token=token_str, expires_at=expires_at)
+        await self.repo.create_auth_token(
+            user_id=user_id, token=token_str, expires_at=expires_at
+        )
         return self.jwt_service.encode(subject={"auth_token": token_str})

@@ -34,7 +34,7 @@ class CreateModel(BaseModel):
         )
 
     @declared_attr
-    def creator(cls) -> Mapped[Optional["User"]]:
+    def creator(cls):
         return relationship(argument="User", foreign_keys=[cls.creator_id])
 
 
@@ -60,7 +60,7 @@ class UpdateModel(BaseModel):
         )
 
     @declared_attr
-    def updater(cls) -> Mapped[Optional["User"]]:
+    def updater(cls):
         return relationship(argument="User", foreign_keys=[cls.updater_id])
 
 
@@ -84,7 +84,7 @@ class DeleteModel(BaseModel):
         )
 
     @declared_attr
-    def deleter(cls) -> Mapped[Optional["User"]]:
+    def deleter(cls):
         return relationship(argument="User", foreign_keys=[cls.deleter_id])
 
 

@@ -41,7 +41,9 @@ class JWTService:
 
         to_encode = {"exp": expire, "iat": datetime.utcnow(), "sub": subject, **kwargs}
 
-        return jwt.encode(payload=to_encode, key=self.secret_key, algorithm=self.algorithm)
+        return jwt.encode(
+            payload=to_encode, key=self.secret_key, algorithm=self.algorithm
+        )
 
     def decode(
         self, token: str, options: Optional[Dict[str, bool]] = None
