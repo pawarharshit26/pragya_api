@@ -1,12 +1,11 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16
-    container_name: postgres
+    container_name: pragya_postgres
     restart: always
     ports:
-      - "5432:5432"
+      # host 5432 is taken by the rdash work stack — pragya uses 5433 on the host
+      - "5433:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -16,7 +15,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4
-    container_name: pgadmin
+    container_name: pragya_pgadmin
     restart: always
     ports:
       - "8080:80"
