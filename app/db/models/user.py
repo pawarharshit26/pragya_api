@@ -37,10 +37,6 @@ class User(CreateUpdateDeleteModel):
         foreign_keys="[AuthToken.user_id]",
     )
 
-    vision = relationship(
-        argument="Vision", back_populates="user", foreign_keys="[Vision.user_id]"
-    )
-
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email='{self.email}', name='{self.name}')>"
 
